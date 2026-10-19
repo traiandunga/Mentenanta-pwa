@@ -7,7 +7,7 @@
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Dexie.js pentru stocare locală IndexedDB -->
+  <!-- Dexie.js -->
   <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
 
   <!-- Manifest PWA -->
@@ -25,7 +25,7 @@
 
   <main class="w-full max-w-md space-y-6">
 
-    <!-- SECTIUNEA BACKUP (EXPORT / IMPORT MANUAL) -->
+    <!-- BACKUP (EXPORT / IMPORT) -->
     <div class="bg-slate-800/90 p-3 rounded-lg border border-slate-700 space-y-2">
       <div class="flex justify-between items-center">
         <h3 class="text-xs font-bold text-slate-300 flex items-center gap-1">
@@ -71,7 +71,7 @@
           <textarea id="defectDesc" rows="2" placeholder="ex: Bornă arsă la contactorul principal" class="w-full p-2 bg-slate-900 border border-slate-600 rounded text-sm focus:outline-none focus:border-amber-400 text-slate-100"></textarea>
         </div>
 
-        <!-- Zonă Captură Foto Defect -->
+        <!-- Camera Foto Defect -->
         <div class="space-y-2">
           <label class="block text-xs text-slate-400">Foto Defect (Opțional)</label>
           
@@ -96,7 +96,7 @@
         </button>
       </div>
 
-      <!-- MODUL DE FILTRARE SI CAUTARE INTERVENTII -->
+      <!-- FILTRARE & SORTARE JURNAL -->
       <div class="bg-slate-800/80 p-3 rounded-lg border border-slate-700/80 space-y-2">
         <h3 class="text-xs font-semibold text-amber-400 uppercase tracking-wider flex items-center justify-between">
           <span>🔍 Filtrare & Sortare Jurnal</span>
@@ -163,7 +163,7 @@
         </button>
       </div>
 
-      <!-- OPȚIUNI SORTARE SI FILTRARE ECHIPAMENTE -->
+      <!-- SORTARE SI FILTRARE ECHIPAMENTE -->
       <div class="bg-slate-800/80 p-3 rounded-lg border border-slate-700 space-y-2">
         <h3 class="text-xs font-semibold text-amber-400 uppercase tracking-wider">
           ⚙ Sortare & Filtrare Echipamente
@@ -197,8 +197,8 @@
   </main>
 
   <script>
-    // Inițializare Bază de Date IndexedDB (Dexie.js)
-    const db = new Dexie("MentenantaDB_V4");
+    // Inițializare Bază de Date rezistentă la erori de versiune
+    const db = new Dexie("MentenantaDB_FINAL");
     db.version(1).stores({
       equipment: '++id, name, currentLine',
       lineHistory: '++id, equipmentId, fromLine, toLine, date',
@@ -208,7 +208,6 @@
     let currentPhotoDefect = null;
     let videoStream = null;
 
-    // Comutare între tab-uri
     function switchTab(tab) {
       const secInt = document.getElementById('sectionInterventions');
       const secEq = document.getElementById('sectionEquipment');
@@ -229,7 +228,7 @@
       renderAll();
     }
 
-    // Camera
+    // Control Cameră
     async function initCamera() {
       const video = document.getElementById('videoDefect');
       const startBtn = document.getElementById('startCamBtn');
@@ -289,7 +288,7 @@
       reader.readAsDataURL(file);
     }
 
-    // Adăugare Echipament
+    // Echipamente
     async function saveEquipment() {
       const name = document.getElementById('eqName').value.trim();
       const line = document.getElementById('eqLine').value.trim();
@@ -306,7 +305,6 @@
       renderAll();
     }
 
-    // Editare Nume Echipament
     async function editEquipmentName(equipmentId) {
       const eq = await db.equipment.get(equipmentId);
       if (!eq) return;
@@ -318,7 +316,6 @@
       renderAll();
     }
 
-    // Transfer pe altă linie
     async function transferEquipment(equipmentId) {
       const eq = await db.equipment.get(equipmentId);
       if (!eq) return;
@@ -337,7 +334,7 @@
       renderAll();
     }
 
-    // Salvare Intervenție Nouă
+    // Intervenții
     async function saveIntervention() {
       const eqSelect = document.getElementById('selectEquipment');
       const eqId = parseInt(eqSelect.value);
@@ -369,7 +366,6 @@
       renderAll();
     }
 
-    // Poză Rezolvare + Comentariu Opțional
     async function addResolutionPhoto(interventionId) {
       const input = document.createElement('input');
       input.type = 'file';
@@ -396,7 +392,6 @@
       input.click();
     }
 
-    // Editare Înregistrare Jurnal (Descriere Defect / Comentariu Rezolvare)
     async function editIntervention(id) {
       const item = await db.interventions.get(id);
       if (!item) return;
@@ -441,7 +436,7 @@
       renderInterventions();
     }
 
-    // Export Backup JSON
+    // Export JSON
     async function exportDataJSON() {
       const equipment = await db.equipment.toArray();
       const lineHistory = await db.lineHistory.toArray();
@@ -466,7 +461,7 @@
       URL.revokeObjectURL(url);
     }
 
-    // Import Backup JSON
+    // Import JSON
     async function importDataJSON(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -564,7 +559,7 @@
       }).join('');
     }
 
-    // Randare Intervenții (Jurnal)
+    // Randare Jurnal Intervenții
     async function renderInterventions() {
       const searchValue = document.getElementById('filterSearch').value.toLowerCase().trim();
       const filterEqId = document.getElementById('filterEquipment').value;
@@ -574,12 +569,10 @@
 
       let items = await db.interventions.toArray();
 
-      // Ordonare după dată
       if (filterSortDate === 'desc') {
         items.reverse();
       }
 
-      // Căutare text
       if (searchValue) {
         items = items.filter(item => 
           item.description.toLowerCase().includes(searchValue) || 
@@ -588,17 +581,14 @@
         );
       }
 
-      // Filtru Echipament
       if (filterEqId) {
         items = items.filter(item => item.equipmentId === parseInt(filterEqId));
       }
 
-      // Filtru Linie Defect
       if (filterLine) {
         items = items.filter(item => item.lineAtEvent === filterLine);
       }
 
-      // Filtru Stare
       if (filterStatus === 'open') {
         items = items.filter(item => !item.photoResolution);
       } else if (filterStatus === 'resolved') {
@@ -617,4 +607,86 @@
               <span class="text-[10px] text-slate-400">${item.date}</span>
             </div>
             
-            <p class="text-xs text-slate-30
+            <p class="text-xs text-slate-300"><strong class="text-slate-400">Defect:</strong> ${item.description}</p>
+            <p class="text-[10px] text-slate-400">Linie la momentul defectului: <span class="text-slate-200 font-medium">${item.lineAtEvent}</span></p>
+
+            <div class="grid grid-cols-2 gap-2 pt-1">
+              ${item.photoDefect ? `
+                <div>
+                  <span class="text-[9px] text-rose-400 font-semibold block mb-0.5">POZĂ DEFECT</span>
+                  <img src="${item.photoDefect}" class="w-full h-24 object-cover rounded border border-rose-900/50">
+                </div>
+              ` : ''}
+
+              <div>
+                ${item.photoResolution ? `
+                  <span class="text-[9px] text-emerald-400 font-semibold block mb-0.5">POZĂ REZOLVARE</span>
+                  <img src="${item.photoResolution}" class="w-full h-24 object-cover rounded border border-emerald-900/50">
+                ` : `
+                  <button type="button" onclick="addResolutionPhoto(${item.id})" class="w-full h-24 bg-slate-900/50 border border-dashed border-slate-600 rounded flex flex-col items-center justify-center text-[10px] text-slate-400 hover:border-emerald-500 hover:text-emerald-400 p-1 text-center">
+                    <span>+ Adaugă poză rezolvare</span>
+                  </button>
+                `}
+              </div>
+            </div>
+
+            ${item.resolutionComment ? `
+              <div class="bg-slate-900/60 p-2 rounded border border-emerald-900/40 text-xs text-emerald-300/90 mt-1">
+                <strong class="text-emerald-400">Soluție/Comentariu:</strong> ${item.resolutionComment}
+              </div>
+            ` : ''}
+
+            <div class="pt-2 flex justify-between items-center border-t border-slate-700/50 mt-2">
+              <button type="button" onclick="editIntervention(${item.id})" class="text-[11px] text-amber-300 hover:underline bg-slate-700/50 px-2 py-0.5 rounded border border-slate-600">
+                ✎ Editează Intrarea
+              </button>
+              <button type="button" onclick="deleteIntervention(${item.id})" class="text-[11px] text-rose-400 hover:underline">
+                Șterge Înregistrare
+              </button>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    // Randare Generală
+    async function renderAll() {
+      try {
+        const equipments = await db.equipment.toArray();
+        const allInterventions = await db.interventions.toArray();
+
+        const selectEq = document.getElementById('selectEquipment');
+        const filterEq = document.getElementById('filterEquipment');
+        const filterLine = document.getElementById('filterLine');
+
+        if (equipments.length === 0) {
+          selectEq.innerHTML = '<option value="">(Adaugă mai întâi un echipament din tab-ul 2)</option>';
+          filterEq.innerHTML = '<option value="">Toate echipamentele</option>';
+        } else {
+          selectEq.innerHTML = equipments.map(e => `<option value="${e.id}">${e.name} — [Linia: ${e.currentLine}]</option>`).join('');
+          
+          const currentSelectedEq = filterEq.value;
+          filterEq.innerHTML = '<option value="">Toate echipamentele</option>' + 
+            equipments.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+          filterEq.value = currentSelectedEq;
+        }
+
+        const uniqueJurnalLines = [...new Set(allInterventions.map(i => i.lineAtEvent))].filter(Boolean).sort();
+        const currentSelectedJurnalLine = filterLine.value;
+        filterLine.innerHTML = '<option value="">Toate liniile</option>' + 
+          uniqueJurnalLines.map(l => `<option value="${l}">${l}</option>`).join('');
+        filterLine.value = currentSelectedJurnalLine;
+
+        await renderEquipmentList();
+        await renderInterventions();
+      } catch (err) {
+        console.error("Eroare la randare:", err);
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      renderAll();
+    });
+  </script>
+</body>
+</html>
