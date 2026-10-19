@@ -27,8 +27,8 @@
 
     <!-- TAB-URI -->
     <div class="flex border-b border-slate-700 text-sm">
-      <button onclick="switchTab('interventions')" id="tabBtnInterventions" class="flex-1 py-2 font-semibold text-amber-400 border-b-2 border-amber-400">Jurnal Intervenții</button>
-      <button onclick="switchTab('equipment')" id="tabBtnEquipment" class="flex-1 py-2 font-semibold text-slate-400">Echipamente & Linii</button>
+      <button type="button" onclick="switchTab('interventions')" id="tabBtnInterventions" class="flex-1 py-2 font-semibold text-amber-400 border-b-2 border-amber-400">Jurnal Intervenții</button>
+      <button type="button" onclick="switchTab('equipment')" id="tabBtnEquipment" class="flex-1 py-2 font-semibold text-slate-400">Echipamente & Linii</button>
     </div>
 
     <!-- SECTIUNEA 1: JURNAL INTERVENTII -->
@@ -79,7 +79,7 @@
       <div class="bg-slate-800/80 p-3 rounded-lg border border-slate-700/80 space-y-2">
         <h3 class="text-xs font-semibold text-amber-400 uppercase tracking-wider flex items-center justify-between">
           <span>🔍 Filtrare Intervenții</span>
-          <button onclick="resetFilters()" class="text-[10px] text-slate-400 hover:text-slate-200 underline lowercase font-normal">resetează</button>
+          <button type="button" onclick="resetFilters()" class="text-[10px] text-slate-400 hover:text-slate-200 underline lowercase font-normal">resetează</button>
         </h3>
         
         <input type="text" id="filterSearch" oninput="renderInterventions()" placeholder="Caută în descriere sau nume..." class="w-full p-2 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 focus:outline-none focus:border-amber-400">
@@ -114,3 +114,367 @@
         <input type="text" id="eqName" placeholder="Nume Mașină / Utilaj" class="w-full p-2 bg-slate-900 border border-slate-600 rounded text-sm focus:outline-none focus:border-amber-400 text-slate-100">
         <input type="text" id="eqLine" placeholder="Linia inițială (ex: Linia 1)" class="w-full p-2 bg-slate-900 border border-slate-600 rounded text-sm focus:outline-none focus:border-amber-400 text-slate-100">
         
+        <button type="button" onclick="saveEquipment()" class="w-full py-2 bg-amber-500 text-slate-900 font-bold rounded text-sm">
+          Adaugă Echipament
+        </button>
+      </div>
+
+      <!-- Lista Echipamentelor -->
+      <div class="space-y-2">
+        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Echipamente Înregistrate</h3>
+        <div id="equipmentList" class="space-y-3"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    // Ințializare Bază de Date Robustă
+    const db = new Dexie("MentenantaDB_V3");
+    db.version(1).stores({
+      equipment: '++id, name, currentLine',
+      lineHistory: '++id, equipmentId, fromLine, toLine, date',
+      interventions: '++id, equipmentId, equipmentName, lineAtEvent, description, photoDefect, photoResolution, date'
+    });
+
+    let currentPhotoDefect = null;
+    let videoStream = null;
+
+    // Comutare între tab-uri
+    function switchTab(tab) {
+      const secInt = document.getElementById('sectionInterventions');
+      const secEq = document.getElementById('sectionEquipment');
+      const btnInt = document.getElementById('tabBtnInterventions');
+      const btnEq = document.getElementById('tabBtnEquipment');
+
+      if (tab === 'interventions') {
+        secInt.classList.remove('hidden');
+        secEq.classList.add('hidden');
+        btnInt.className = 'flex-1 py-2 font-semibold text-amber-400 border-b-2 border-amber-400';
+        btnEq.className = 'flex-1 py-2 font-semibold text-slate-400';
+      } else {
+        secInt.classList.add('hidden');
+        secEq.classList.remove('hidden');
+        btnInt.className = 'flex-1 py-2 font-semibold text-slate-400';
+        btnEq.className = 'flex-1 py-2 font-semibold text-amber-400 border-b-2 border-amber-400';
+      }
+      renderAll();
+    }
+
+    // Camera
+    async function initCamera() {
+      const video = document.getElementById('videoDefect');
+      const startBtn = document.getElementById('startCamBtn');
+      const captureBtn = document.getElementById('captureBtn');
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        document.getElementById('fileFallback').click();
+        return;
+      }
+
+      try {
+        videoStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false
+        });
+        video.srcObject = videoStream;
+        video.classList.remove('hidden');
+        startBtn.classList.add('hidden');
+        captureBtn.classList.remove('hidden');
+      } catch (err) {
+        document.getElementById('fileFallback').click();
+      }
+    }
+
+    function takePhoto() {
+      const video = document.getElementById('videoDefect');
+      const canvas = document.getElementById('canvasDefect');
+      const preview = document.getElementById('photoDefectPreview');
+      const captureBtn = document.getElementById('captureBtn');
+
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+
+      currentPhotoDefect = canvas.toDataURL('image/jpeg', 0.7);
+      preview.src = currentPhotoDefect;
+      preview.classList.remove('hidden');
+      video.classList.add('hidden');
+      captureBtn.classList.add('hidden');
+
+      if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+      }
+    }
+
+    function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        currentPhotoDefect = e.target.result;
+        const preview = document.getElementById('photoDefectPreview');
+        preview.src = currentPhotoDefect;
+        preview.classList.remove('hidden');
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Adăugare Echipament
+    async function saveEquipment() {
+      const name = document.getElementById('eqName').value.trim();
+      const line = document.getElementById('eqLine').value.trim();
+
+      if (!name || !line) {
+        alert("Introdu numele echipamentului și linia!");
+        return;
+      }
+
+      await db.equipment.add({ name: name, currentLine: line });
+      document.getElementById('eqName').value = '';
+      document.getElementById('eqLine').value = '';
+      
+      renderAll();
+    }
+
+    // Editare Nume Echipament
+    async function editEquipmentName(equipmentId) {
+      const eq = await db.equipment.get(equipmentId);
+      if (!eq) return;
+
+      const newName = prompt(`Modifică numele echipamentului:`, eq.name);
+      if (!newName || newName.trim() === '' || newName.trim() === eq.name) return;
+
+      await db.equipment.update(equipmentId, { name: newName.trim() });
+      renderAll();
+    }
+
+    // Transfer pe altă linie
+    async function transferEquipment(equipmentId) {
+      const eq = await db.equipment.get(equipmentId);
+      if (!eq) return;
+
+      const newLine = prompt(`Linia curentă: "${eq.currentLine}". Introdu noua linie:`);
+      if (!newLine || newLine.trim() === '' || newLine.trim() === eq.currentLine) return;
+
+      await db.equipment.update(equipmentId, { currentLine: newLine.trim() });
+      await db.lineHistory.add({
+        equipmentId: equipmentId,
+        fromLine: eq.currentLine,
+        toLine: newLine.trim(),
+        date: new Date().toLocaleString('ro-RO')
+      });
+
+      renderAll();
+    }
+
+    // Salvare Intervenție
+    async function saveIntervention() {
+      const eqSelect = document.getElementById('selectEquipment');
+      const eqId = parseInt(eqSelect.value);
+      const description = document.getElementById('defectDesc').value.trim();
+
+      if (!eqId || !description) {
+        alert("Selectează echipamentul și adaugă o descriere!");
+        return;
+      }
+
+      const eq = await db.equipment.get(eqId);
+
+      await db.interventions.add({
+        equipmentId: eq.id,
+        equipmentName: eq.name,
+        lineAtEvent: eq.currentLine,
+        description: description,
+        photoDefect: currentPhotoDefect,
+        photoResolution: null,
+        date: new Date().toLocaleString('ro-RO')
+      });
+
+      document.getElementById('defectDesc').value = '';
+      document.getElementById('photoDefectPreview').classList.add('hidden');
+      document.getElementById('startCamBtn').classList.remove('hidden');
+      currentPhotoDefect = null;
+
+      renderAll();
+    }
+
+    async function addResolutionPhoto(interventionId) {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.capture = 'environment';
+
+      input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          await db.interventions.update(interventionId, {
+            photoResolution: event.target.result
+          });
+          renderAll();
+        };
+        reader.readAsDataURL(file);
+      };
+
+      input.click();
+    }
+
+    async function deleteIntervention(id) {
+      if (confirm("Ștergi această intervenție din jurnal?")) {
+        await db.interventions.delete(id);
+        renderAll();
+      }
+    }
+
+    async function deleteEquipment(id) {
+      if (confirm("Ștergi acest echipament? Intervențiile vechi se vor păstra.")) {
+        await db.equipment.delete(id);
+        renderAll();
+      }
+    }
+
+    function resetFilters() {
+      document.getElementById('filterSearch').value = '';
+      document.getElementById('filterEquipment').value = '';
+      document.getElementById('filterStatus').value = 'all';
+      renderInterventions();
+    }
+
+    // Randare Intervenții
+    async function renderInterventions() {
+      const searchValue = document.getElementById('filterSearch').value.toLowerCase().trim();
+      const filterEqId = document.getElementById('filterEquipment').value;
+      const filterStatus = document.getElementById('filterStatus').value;
+
+      let items = await db.interventions.reverse().toArray();
+
+      if (searchValue) {
+        items = items.filter(item => 
+          item.description.toLowerCase().includes(searchValue) || 
+          item.equipmentName.toLowerCase().includes(searchValue)
+        );
+      }
+
+      if (filterEqId) {
+        items = items.filter(item => item.equipmentId === parseInt(filterEqId));
+      }
+
+      if (filterStatus === 'open') {
+        items = items.filter(item => !item.photoResolution);
+      } else if (filterStatus === 'resolved') {
+        items = items.filter(item => !!item.photoResolution);
+      }
+
+      const intContainer = document.getElementById('interventionsList');
+
+      if (items.length === 0) {
+        intContainer.innerHTML = '<p class="text-xs text-slate-500 italic text-center py-4">Nicio intervenție găsită.</p>';
+      } else {
+        intContainer.innerHTML = items.map(item => `
+          <div class="bg-slate-800 p-3 rounded border border-slate-700 space-y-2">
+            <div class="flex justify-between items-start">
+              <span class="font-bold text-amber-400 text-sm">${item.equipmentName}</span>
+              <span class="text-[10px] text-slate-400">${item.date}</span>
+            </div>
+            
+            <p class="text-xs text-slate-300">${item.description}</p>
+            <p class="text-[10px] text-slate-400">Linie la momentul defectului: <span class="text-slate-200 font-medium">${item.lineAtEvent}</span></p>
+
+            <div class="grid grid-cols-2 gap-2 pt-1">
+              ${item.photoDefect ? `
+                <div>
+                  <span class="text-[9px] text-rose-400 font-semibold block mb-0.5">POZĂ DEFECT</span>
+                  <img src="${item.photoDefect}" class="w-full h-24 object-cover rounded border border-rose-900/50">
+                </div>
+              ` : ''}
+
+              <div>
+                ${item.photoResolution ? `
+                  <span class="text-[9px] text-emerald-400 font-semibold block mb-0.5">POZĂ REZOLVARE</span>
+                  <img src="${item.photoResolution}" class="w-full h-24 object-cover rounded border border-emerald-900/50">
+                ` : `
+                  <button type="button" onclick="addResolutionPhoto(${item.id})" class="w-full h-24 bg-slate-900/50 border border-dashed border-slate-600 rounded flex flex-col items-center justify-center text-[10px] text-slate-400 hover:border-emerald-500 hover:text-emerald-400 p-1 text-center">
+                    <span>+ Adaugă poză rezolvare</span>
+                  </button>
+                `}
+              </div>
+            </div>
+
+            <div class="pt-1 flex justify-end">
+              <button type="button" onclick="deleteIntervention(${item.id})" class="text-[11px] text-rose-400 hover:underline">
+                Șterge Înregistrare
+              </button>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    // Randare Generală
+    async function renderAll() {
+      const equipments = await db.equipment.toArray();
+      const selectEq = document.getElementById('selectEquipment');
+      const filterEq = document.getElementById('filterEquipment');
+      
+      if (equipments.length === 0) {
+        selectEq.innerHTML = '<option value="">(Adaugă mai întâi un echipament din tab-ul 2)</option>';
+        filterEq.innerHTML = '<option value="">Toate echipamentele</option>';
+      } else {
+        selectEq.innerHTML = equipments.map(e => `<option value="${e.id}">${e.name} — [Linia: ${e.currentLine}]</option>`).join('');
+        
+        const currentSelectedFilter = filterEq.value;
+        filterEq.innerHTML = '<option value="">Toate echipamentele</option>' + 
+          equipments.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+        filterEq.value = currentSelectedFilter;
+      }
+
+      // Echipamente & Linii
+      const eqContainer = document.getElementById('equipmentList');
+      if (equipments.length === 0) {
+        eqContainer.innerHTML = '<p class="text-xs text-slate-500 italic text-center py-4">Niciun echipament adăugat încă. Folosește formularul de mai sus.</p>';
+      } else {
+        const history = await db.lineHistory.toArray();
+        eqContainer.innerHTML = equipments.map(eq => {
+          const eqHistory = history.filter(h => h.equipmentId === eq.id);
+          return `
+            <div class="bg-slate-800 p-3 rounded border border-slate-700 space-y-2">
+              <div class="flex justify-between items-start">
+                <div class="flex items-center gap-2">
+                  <h4 class="font-bold text-amber-400 text-sm">${eq.name}</h4>
+                  <button type="button" onclick="editEquipmentName(${eq.id})" class="text-[11px] text-amber-300 hover:underline bg-slate-700/60 px-1.5 py-0.5 rounded border border-slate-600">
+                    ✎ Editează
+                  </button>
+                </div>
+                <button type="button" onclick="deleteEquipment(${eq.id})" class="text-[10px] text-rose-400 hover:underline">Șterge</button>
+              </div>
+              
+              <p class="text-xs text-slate-300">Linie Curentă: <span class="font-semibold text-emerald-400">${eq.currentLine}</span></p>
+              
+              <button type="button" onclick="transferEquipment(${eq.id})" class="text-xs bg-slate-700 px-2 py-1 rounded hover:bg-slate-600 text-slate-200">
+                Mută pe altă linie
+              </button>
+
+              ${eqHistory.length > 0 ? `
+                <div class="mt-2 pt-2 border-t border-slate-700/50 text-[10px] text-slate-400 space-y-1">
+                  <span class="font-semibold">Istoric Transferuri:</span>
+                  ${eqHistory.map(h => `<div>• ${h.fromLine} ➔ ${h.toLine} (${h.date})</div>`).join('')}
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('');
+      }
+
+      renderInterventions();
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      renderAll();
+    });
+  </script>
+</body>
+</html>
