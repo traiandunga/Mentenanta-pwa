@@ -25,6 +25,27 @@
 
   <main class="w-full max-w-md space-y-6">
 
+    <!-- SECTIUNEA BACKUP (EXPORT / IMPORT MANUAL PENTRU GOOGLE DRIVE) -->
+    <div class="bg-slate-800/90 p-3 rounded-lg border border-slate-700 space-y-2">
+      <div class="flex justify-between items-center">
+        <h3 class="text-xs font-bold text-slate-300 flex items-center gap-1">
+          💾 Salvare & Backup Manual (Google Drive)
+        </h3>
+      </div>
+      <p class="text-[11px] text-slate-400">Descarcă backup-ul local și salvează-l în Google Drive, sau restaurează un fișier .json descărcat.</p>
+      
+      <div class="flex gap-2 pt-1">
+        <button type="button" onclick="exportDataJSON()" class="flex-1 py-1.5 bg-slate-700 hover:bg-slate-600 text-amber-300 font-semibold rounded text-xs border border-slate-600 flex justify-center items-center gap-1">
+          ⬇ Export Backup (.json)
+        </button>
+
+        <button type="button" onclick="document.getElementById('importFileInput').click()" class="flex-1 py-1.5 bg-slate-700 hover:bg-slate-600 text-emerald-300 font-semibold rounded text-xs border border-slate-600 flex justify-center items-center gap-1">
+          ⬆ Import Backup (.json)
+        </button>
+        <input type="file" id="importFileInput" accept=".json" class="hidden" onchange="importDataJSON(event)">
+      </div>
+    </div>
+
     <!-- TAB-URI -->
     <div class="flex border-b border-slate-700 text-sm">
       <button type="button" onclick="switchTab('interventions')" id="tabBtnInterventions" class="flex-1 py-2 font-semibold text-amber-400 border-b-2 border-amber-400">Jurnal Intervenții</button>
@@ -75,7 +96,7 @@
         </button>
       </div>
 
-      <!-- MODUL DE FILTRARE SI CAUTARE -->
+      <!-- MODUL DE FILTRARE SI CAUTARE INTERVENTII -->
       <div class="bg-slate-800/80 p-3 rounded-lg border border-slate-700/80 space-y-2">
         <h3 class="text-xs font-semibold text-amber-400 uppercase tracking-wider flex items-center justify-between">
           <span>🔍 Filtrare Intervenții</span>
@@ -119,6 +140,30 @@
         </button>
       </div>
 
+      <!-- OPȚIUNI SORTARE SI FILTRARE ECHIPAMENTE -->
+      <div class="bg-slate-800/80 p-3 rounded-lg border border-slate-700 space-y-2">
+        <h3 class="text-xs font-semibold text-amber-400 uppercase tracking-wider">
+          ⚙ Sortare & Filtrare Echipamente
+        </h3>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[10px] text-slate-400 mb-1">Ordonare Nume</label>
+            <select id="eqSortOrder" onchange="renderEquipmentList()" class="w-full p-1.5 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 focus:outline-none focus:border-amber-400">
+              <option value="asc">A ➔ Z (Alfabetic)</option>
+              <option value="desc">Z ➔ A (Invers)</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-[10px] text-slate-400 mb-1">Filtrează după Linie</label>
+            <select id="eqLineFilter" onchange="renderEquipmentList()" class="w-full p-1.5 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 focus:outline-none focus:border-amber-400">
+              <option value="all">Toate Liniile</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       <!-- Lista Echipamentelor -->
       <div class="space-y-2">
         <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Echipamente Înregistrate</h3>
@@ -129,7 +174,7 @@
   </main>
 
   <script>
-    // Ințializare Bază de Date Robustă
+    // Inițializare Bază de Date IndexedDB (Dexie.js)
     const db = new Dexie("MentenantaDB_V3");
     db.version(1).stores({
       equipment: '++id, name, currentLine',
@@ -344,6 +389,132 @@
       renderInterventions();
     }
 
+    // Export Backup JSON
+    async function exportDataJSON() {
+      const equipment = await db.equipment.toArray();
+      const lineHistory = await db.lineHistory.toArray();
+      const interventions = await db.interventions.toArray();
+
+      const backupData = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        equipment,
+        lineHistory,
+        interventions
+      };
+
+      const jsonStr = JSON.stringify(backupData, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `mentenanta_backup_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Import Backup JSON
+    async function importDataJSON(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        try {
+          const data = JSON.parse(e.target.result);
+          
+          if (!data.equipment || !data.interventions) {
+            alert("Fișierul selectat nu are structura corectă de backup!");
+            return;
+          }
+
+          if (confirm("Această acțiune va înlocui datele curente din aplicație cu cele din fișierul importat. Continui?")) {
+            await db.equipment.clear();
+            await db.lineHistory.clear();
+            await db.interventions.clear();
+
+            if (data.equipment.length > 0) await db.equipment.bulkAdd(data.equipment);
+            if (data.lineHistory && data.lineHistory.length > 0) await db.lineHistory.bulkAdd(data.lineHistory);
+            if (data.interventions.length > 0) await db.interventions.bulkAdd(data.interventions);
+
+            alert("Restaurarea datelor s-a realizat cu succes!");
+            renderAll();
+          }
+        } catch (err) {
+          alert("Eroare la citirea fișierului JSON: " + err.message);
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = '';
+    }
+
+    // Randare Lista Echipamente (cu Sortare Alfabetică & Filtru Linie)
+    async function renderEquipmentList() {
+      let equipments = await db.equipment.toArray();
+      const sortOrder = document.getElementById('eqSortOrder').value;
+      const selectedLine = document.getElementById('eqLineFilter').value;
+
+      // Populează dropdown-ul de linii
+      const lineFilterSelect = document.getElementById('eqLineFilter');
+      const uniqueLines = [...new Set(equipments.map(e => e.currentLine))].filter(Boolean).sort();
+      
+      const currentSelectedLine = lineFilterSelect.value;
+      lineFilterSelect.innerHTML = '<option value="all">Toate Liniile</option>' + 
+        uniqueLines.map(l => `<option value="${l}">${l}</option>`).join('');
+      lineFilterSelect.value = currentSelectedLine;
+
+      // Aplică Filtrare după linie
+      if (selectedLine !== 'all') {
+        equipments = equipments.filter(e => e.currentLine === selectedLine);
+      }
+
+      // Aplică Sortare Alfabetică
+      equipments.sort((a, b) => {
+        const nameA = a.name.toLowerCase();
+        const nameB = b.name.toLowerCase();
+        if (sortOrder === 'asc') return nameA.localeCompare(nameB);
+        return nameB.localeCompare(nameA);
+      });
+
+      const eqContainer = document.getElementById('equipmentList');
+      if (equipments.length === 0) {
+        eqContainer.innerHTML = '<p class="text-xs text-slate-500 italic text-center py-4">Niciun echipament găsit conform criteriilor de filtrare.</p>';
+        return;
+      }
+
+      const history = await db.lineHistory.toArray();
+      eqContainer.innerHTML = equipments.map(eq => {
+        const eqHistory = history.filter(h => h.equipmentId === eq.id);
+        return `
+          <div class="bg-slate-800 p-3 rounded border border-slate-700 space-y-2">
+            <div class="flex justify-between items-start">
+              <div class="flex items-center gap-2">
+                <h4 class="font-bold text-amber-400 text-sm">${eq.name}</h4>
+                <button type="button" onclick="editEquipmentName(${eq.id})" class="text-[11px] text-amber-300 hover:underline bg-slate-700/60 px-1.5 py-0.5 rounded border border-slate-600">
+                  ✎ Editează
+                </button>
+              </div>
+              <button type="button" onclick="deleteEquipment(${eq.id})" class="text-[10px] text-rose-400 hover:underline">Șterge</button>
+            </div>
+            
+            <p class="text-xs text-slate-300">Linie Curentă: <span class="font-semibold text-emerald-400">${eq.currentLine}</span></p>
+            
+            <button type="button" onclick="transferEquipment(${eq.id})" class="text-xs bg-slate-700 px-2 py-1 rounded hover:bg-slate-600 text-slate-200">
+              Mută pe altă linie
+            </button>
+
+            ${eqHistory.length > 0 ? `
+              <div class="mt-2 pt-2 border-t border-slate-700/50 text-[10px] text-slate-400 space-y-1">
+                <span class="font-semibold">Istoric Transferuri:</span>
+                ${eqHistory.map(h => `<div>• ${h.fromLine} ➔ ${h.toLine} (${h.date})</div>`).join('')}
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
     // Randare Intervenții
     async function renderInterventions() {
       const searchValue = document.getElementById('filterSearch').value.toLowerCase().trim();
@@ -432,44 +603,8 @@
         filterEq.value = currentSelectedFilter;
       }
 
-      // Echipamente & Linii
-      const eqContainer = document.getElementById('equipmentList');
-      if (equipments.length === 0) {
-        eqContainer.innerHTML = '<p class="text-xs text-slate-500 italic text-center py-4">Niciun echipament adăugat încă. Folosește formularul de mai sus.</p>';
-      } else {
-        const history = await db.lineHistory.toArray();
-        eqContainer.innerHTML = equipments.map(eq => {
-          const eqHistory = history.filter(h => h.equipmentId === eq.id);
-          return `
-            <div class="bg-slate-800 p-3 rounded border border-slate-700 space-y-2">
-              <div class="flex justify-between items-start">
-                <div class="flex items-center gap-2">
-                  <h4 class="font-bold text-amber-400 text-sm">${eq.name}</h4>
-                  <button type="button" onclick="editEquipmentName(${eq.id})" class="text-[11px] text-amber-300 hover:underline bg-slate-700/60 px-1.5 py-0.5 rounded border border-slate-600">
-                    ✎ Editează
-                  </button>
-                </div>
-                <button type="button" onclick="deleteEquipment(${eq.id})" class="text-[10px] text-rose-400 hover:underline">Șterge</button>
-              </div>
-              
-              <p class="text-xs text-slate-300">Linie Curentă: <span class="font-semibold text-emerald-400">${eq.currentLine}</span></p>
-              
-              <button type="button" onclick="transferEquipment(${eq.id})" class="text-xs bg-slate-700 px-2 py-1 rounded hover:bg-slate-600 text-slate-200">
-                Mută pe altă linie
-              </button>
-
-              ${eqHistory.length > 0 ? `
-                <div class="mt-2 pt-2 border-t border-slate-700/50 text-[10px] text-slate-400 space-y-1">
-                  <span class="font-semibold">Istoric Transferuri:</span>
-                  ${eqHistory.map(h => `<div>• ${h.fromLine} ➔ ${h.toLine} (${h.date})</div>`).join('')}
-                </div>
-              ` : ''}
-            </div>
-          `;
-        }).join('');
-      }
-
-      renderInterventions();
+      await renderEquipmentList();
+      await renderInterventions();
     }
 
     window.addEventListener('DOMContentLoaded', () => {
